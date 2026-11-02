@@ -1,0 +1,51 @@
+name: Scan job boards
+
+on:
+  schedule:
+    - cron: "0,30 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: jobpilot-job-board-scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Trigger the protected job-board scanner
+        env:
+          APP_URL: ${{ vars.JOBPILOT_APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [[ -z "$APP_URL" || -z "$CRON_SECRET" ]]; then
+            echo "::notice::Set JOBPILOT_APP_URL and CRON_SECRET in repository Actions settings to enable scheduled scans."
+            exit 0
+          fi
+
+          if [[ "$APP_URL" != https://* ]]; then
+            echo "::error::JOBPILOT_APP_URL must start with https://."
+            exit 1
+          fi
+
+          response="$(curl --fail-with-body --silent --show-error --max-time 55 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${APP_URL%/}/api/cron/scan")"
+
+          printf '%s' "$response" | node -e '
+            let body = "";
+            process.stdin.on("data", chunk => body += chunk);
+            process.stdin.on("end", () => {
+              const result = JSON.parse(body);
+              console.log(JSON.stringify({
+                scanned: result.scanned,
+                newMatches: result.newMatches,
+                notificationsSent: result.notificationsSent,
+                failureCount: result.failures?.length ?? 0
+              }));
+              if (result.error || result.failures?.length) process.exitCode = 1;
+            });
+          '
