@@ -4,19 +4,26 @@ Jobpilot is an approval-first job-search application. It supports email-link aut
 
 ## Recommended setup in plain language
 
-Three services work together: **Supabase** stores your private profile and signs you in, **Resend** sends email notifications, and **Vercel** hosts the website. The public GitHub repository runs the free 30-minute schedule. You must create the Supabase project and verify a sender domain in Resend before the matching and emails can work.
+Three services work together: **Supabase** stores your private profile and signs you in, **Gmail** sends low-volume personal notifications, and **Vercel** hosts the website. The public GitHub repository runs the free 30-minute schedule. A custom sending domain is not required for this Gmail setup.
 
 ### A. Create the private database and sign-in (Supabase)
 
 1. Sign in at [supabase.com](https://supabase.com) and create a project. Save its database password in your password manager.
 2. In **Project Settings → API Keys**, copy the **Project URL**, the **publishable key**, and the **service_role secret key**. The service-role key grants administrator access: keep it private and put it only in Vercel's encrypted settings.
 3. Open **SQL Editor → New query**, paste the full contents of [`supabase/migrations/202611020001_initial_schema.sql`](./supabase/migrations/202611020001_initial_schema.sql), and run it once. It creates private profile, job, and resume storage with per-account access protections.
-4. In **Authentication → URL Configuration**, add `https://online-job-applicant.vercel.app/auth/callback` to the redirect URLs after the first Vercel deploy. Also add `http://localhost:3000/auth/callback` for local testing.
+4. In **Authentication → URL Configuration**, add the current Vercel deployment URL plus `/auth/callback` to the redirect URLs. Also add `http://localhost:3000/auth/callback` for local testing.
 
-### B. Set up email (Resend)
+### B. Set up free personal email (Gmail)
 
-1. Sign in at [resend.com](https://resend.com) and verify a sender domain that you own. Resend will ask you to add DNS records at your domain provider.
-2. Create an API key in **API Keys**. Use a sender such as `Jobpilot <alerts@your-verified-domain.example>` for `RESEND_FROM_EMAIL`; replace the example with an address on your verified domain.
+Jobpilot sends personal notifications through a small Google Apps Script that uses your Gmail account. This avoids buying a domain and avoids SMTP connections from Vercel.
+
+1. Sign in to [script.google.com](https://script.google.com) with the Gmail account where you want Jobpilot alerts. This must be the same email address you use to sign in to Jobpilot. Create a new project named `Jobpilot Mailer`.
+2. Replace the editor contents with [`scripts/google-apps-script.gs`](./scripts/google-apps-script.gs) and save.
+3. Open **Project Settings → Script properties** and add:
+   - `JOBPILOT_TOKEN`: a new random secret generated locally with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Keep it private.
+   - `ALLOWED_RECIPIENT`: the same Gmail address you will use to sign in to Jobpilot. The mailer refuses other recipients.
+4. Choose **Deploy → New deployment → Web app**. Set **Execute as** to **Me** and **Who has access** to **Anyone**, then deploy. Authorize the requested Gmail permission. Copy the deployment URL ending in `/exec`; do not use a `/dev` URL.
+5. Gmail is intended here for low-volume personal alerts. Google applies sending quotas, and this setup is not intended for bulk mail. Supabase sign-in email delivery is a separate service and keeps using Supabase's configured auth email provider.
 
 ### C. Add service settings to Vercel
 
@@ -27,8 +34,8 @@ In Vercel, open the **online-job-applicant** project → **Settings → Environm
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase Project URL |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service-role **secret** key |
-| `RESEND_API_KEY` | Resend API key |
-| `RESEND_FROM_EMAIL` | Sender address on the domain verified with Resend |
+| `GMAIL_WEB_APP_URL` | The deployed Google Apps Script URL ending in `/exec` |
+| `GMAIL_WEB_APP_TOKEN` | The same private random token stored as `JOBPILOT_TOKEN` in Apps Script |
 | `CRON_SECRET` | A new random secret; generate it locally with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
 
 These are not new accounts. They are the connection settings Vercel needs to make the app work. Never paste their values into chat or put them in a public GitHub file. After saving or changing them, redeploy so the new settings take effect.
@@ -47,14 +54,14 @@ If GitHub's scheduled-run reliability is not sufficient, move scheduling to a de
 
 ## Local development
 
-Copy `.env.example` to `.env.local` and fill it in from Supabase and Resend. The service-role key, Resend key, and cron secret are server-only. Never prefix them with `NEXT_PUBLIC_` or commit them.
+Copy `.env.example` to `.env.local` and fill it in from Supabase and Google. The service-role key, Gmail mailer token, and cron secret are server-only. Never prefix them with `NEXT_PUBLIC_` or commit them.
 
 ```bash
 npm install
 npm run dev
 ```
 
-Sign in using the verified email address where you want alerts. In **Preferences**, add the company's Greenhouse or Lever board slug, enable scans and email alerts in your profile, and send a test email to verify Resend delivery.
+Sign in using the verified email address where you want alerts. In **Preferences**, add the company's Greenhouse or Lever board slug, enable scans and email alerts in your profile, and send a test email to verify Gmail delivery.
 
 ## Required accounts and configuration
 
@@ -65,11 +72,9 @@ Sign in using the verified email address where you want alerts. In **Preferences
 3. Run [`supabase/migrations/202611020001_initial_schema.sql`](./supabase/migrations/202611020001_initial_schema.sql) in the Supabase SQL editor. It creates row-level security policies, private resume storage, notification rate limits, and the scan cursor.
 4. Add your local and production app URLs to the Supabase Auth redirect allowlist, including `/auth/callback`.
 
-### 2. Resend
+### 2. Gmail email delivery
 
-1. Verify a sender domain in Resend and create an API key.
-2. Configure the sender in `RESEND_FROM_EMAIL`, for example `Jobpilot <alerts@your-verified-domain.example>`.
-3. To have Supabase sign-in links use the same deliverability setup, configure Supabase Auth's custom SMTP using the Resend SMTP credentials. Do not put SMTP or API credentials in browser code.
+Follow section **B** above to deploy the Apps Script mailer. The allowed recipient must be the same verified email address used to sign in to Jobpilot. Keep the token secret and only configure it in Apps Script properties and Vercel.
 
 ### 3. Local development
 
@@ -79,12 +84,12 @@ Copy `.env.example` to `.env.local` and fill in the values from the services abo
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
-RESEND_API_KEY=
-RESEND_FROM_EMAIL=
+GMAIL_WEB_APP_URL=
+GMAIL_WEB_APP_TOKEN=
 CRON_SECRET=
 ```
 
-Generate a strong cron secret, for example with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. The Supabase service-role key, Resend key, and cron secret are server-only. Never prefix them with `NEXT_PUBLIC_`, commit them, or paste them into chat.
+Generate strong random tokens, for example with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. The Supabase service-role key, Gmail mailer token, and cron secret are server-only. Never prefix them with `NEXT_PUBLIC_`, commit them, or paste them into chat.
 
 Install dependencies and run the app:
 
@@ -93,7 +98,7 @@ npm install
 npm run dev
 ```
 
-Sign in using the verified email address where you want alerts. In **Preferences**, add the company's Greenhouse or Lever board slug, enable scans and email alerts in your profile, and send a test email to verify Resend delivery.
+Sign in using the verified email address where you want alerts. In **Preferences**, add the company's Greenhouse or Lever board slug, enable scans and email alerts in your profile, and send a test email to verify Gmail delivery.
 
 ## Job sources and matching
 
@@ -105,7 +110,7 @@ Sign in using the verified email address where you want alerts. In **Preferences
 
 ## Deploy and verify
 
-The Vercel project `online-job-applicant` is connected to the public repository. After pushing code to `main`, Vercel builds and deploys the app. Add the Supabase and Resend settings before signing in, apply the database migration, then add the two GitHub Actions settings above. Finally, sign in, add a board, enable scans and email alerts in your profile, send a test email, and trigger one manual scan from GitHub Actions.
+The Vercel project `online-job-applicant` is connected to the public repository. After pushing code to `main`, Vercel builds and deploys the app. Add the Supabase and Gmail settings before signing in, apply the database migration, then add the two GitHub Actions settings above. Finally, sign in, add a board, enable scans and email alerts in your profile, send a test email, and trigger one manual scan from GitHub Actions.
 
 The scanner uses a bounded source batch and persists its cursor to avoid starving later boards. Monitor GitHub Actions and Vercel function logs for failures.
 
@@ -113,7 +118,7 @@ The scanner uses a bounded source batch and persists its cursor to avoid starvin
 
 - Supabase Auth sessions use secure server-managed cookies. Server routes verify the current user, and database row-level security scopes profile, board, and match access to that user.
 - Resume uploads are private, limited to PDF/Word files up to 5 MB, and stored under the signed-in user's storage path.
-- Email is sent only to the verified sign-in email, and only after the user enables alerts. Test email requests are rate limited. The scanner uses a server-only service role and a timing-safe cron-secret check; notification delivery is idempotent and queued transactionally with new matches.
+- Email is sent only to the verified sign-in email, and only after the user enables alerts. Test email requests are rate limited. The scanner uses a server-only service role and a timing-safe cron-secret check; notifications are queued transactionally with new matches. Gmail does not provide provider-side idempotency through this mailer, so a rare retry after a send/database update failure may send a duplicate.
 - No profile or resume is sent to GPT or another AI service by this MVP.
 - Application approval records the user's decision only; no external application is submitted.
 

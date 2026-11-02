@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
   if (!user.email || !user.email_confirmed_at) {
     return NextResponse.json({ error: "Verify your sign-in email before sending notifications." }, { status: 403 });
   }
-  if (!process.env.RESEND_API_KEY || !process.env.RESEND_FROM_EMAIL) {
+  if (!process.env.GMAIL_WEB_APP_URL || !process.env.GMAIL_WEB_APP_TOKEN) {
     return NextResponse.json({ error: "Email delivery is not configured on this deployment." }, { status: 503 });
   }
 

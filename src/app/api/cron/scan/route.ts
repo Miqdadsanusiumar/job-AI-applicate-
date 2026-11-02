@@ -260,7 +260,6 @@ async function sendPendingNotifications(admin: ReturnType<typeof createAdminClie
         return { sent: 0, failure: `Could not load matches for account ${batch.userId}` };
       }
 
-      const idempotencyKey = `jobpilot-${[...deliveryIds].sort().join("-")}`;
       try {
         await sendMatchEmail(
           {
@@ -273,7 +272,6 @@ async function sendPendingNotifications(admin: ReturnType<typeof createAdminClie
               score: match.match_score,
             })),
           },
-          idempotencyKey,
         );
         const { error: updateError } = await admin
           .from("email_deliveries")
